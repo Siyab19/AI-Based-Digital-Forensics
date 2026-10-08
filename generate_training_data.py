@@ -2,390 +2,216 @@ import json
 import random
 
 
-OUTPUT_FILE = "training_features.json"
-
 NUMBER_OF_RECORDS = 2000
 
 
-# ------------------------------------------------
-# NORMAL BEHAVIOUR
-# ------------------------------------------------
+def create_sequence_features(
+    failed_logins,
+    successful_logins,
+    successful_after_failure,
+    firewall_activity,
+    firewall_denials,
+    browser_activity,
+    authentication_events,
+    duration
+):
+    total_events = (
+        authentication_events
+        + firewall_activity
+        + browser_activity
+    )
 
-def normal_successful_login_browser():
-    """
-    Successful authentication followed by normal browser activity.
-    """
+    evidence_sources = sum([
+        authentication_events > 0,
+        firewall_activity > 0,
+        browser_activity > 0
+    ])
 
     return {
-        "features": {
-            "time_difference_seconds": random.randint(30, 300),
-
-            "authentication_failed": 0,
-            "authentication_success": 1,
-
-            "firewall_activity": 0,
-            "firewall_denied": 0,
-
-            "browser_activity": 1,
-
-            "same_user": 1,
-            "same_source_ip": 1,
-            "same_device": 1,
-
-            "different_sources": 1
-        },
-        "label": 0
+        "failed_login_count": failed_logins,
+        "successful_login_count": successful_logins,
+        "successful_login_after_failure": successful_after_failure,
+        "firewall_activity_count": firewall_activity,
+        "firewall_denial_count": firewall_denials,
+        "browser_activity_count": browser_activity,
+        "authentication_event_count": authentication_events,
+        "total_event_count": total_events,
+        "number_of_evidence_sources": evidence_sources,
+        "sequence_duration_seconds": duration
     }
 
 
-def normal_failed_login_then_success():
+def generate_base_behaviour():
     """
-    A user mistypes a password and subsequently logs in successfully.
-    This should NOT automatically be considered malicious.
-    """
-
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(30, 180),
-
-            "authentication_failed": 1,
-            "authentication_success": 1,
-
-            "firewall_activity": 0,
-            "firewall_denied": 0,
-
-            "browser_activity": 1,
-
-            "same_user": 1,
-            "same_source_ip": 1,
-            "same_device": 1,
-
-            "different_sources": 1
-        },
-        "label": 0
-    }
-
-
-def normal_allowed_network_activity():
-    """
-    Successful authentication followed by allowed network activity.
+    Generate a random combination of authentication,
+    firewall and browser behaviour.
     """
 
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(30, 300),
+    failed_logins = random.choices(
+        [0, 1, 2, 3],
+        weights=[45, 35, 15, 5]
+    )[0]
 
-            "authentication_failed": 0,
-            "authentication_success": 1,
+    successful_logins = random.choices(
+        [0, 1, 2],
+        weights=[20, 60, 20]
+    )[0]
 
-            "firewall_activity": 1,
-            "firewall_denied": 0,
+    firewall_activity = random.randint(0, 3)
 
-            "browser_activity": 0,
+    firewall_denials = random.randint(
+        0,
+        firewall_activity
+    )
 
-            "same_user": 0,
-            "same_source_ip": 1,
-            "same_device": 0,
+    browser_activity = random.randint(0, 3)
 
-            "different_sources": 1
-        },
-        "label": 0
-    }
+    authentication_events = (
+        failed_logins + successful_logins
+    )
+
+    successful_after_failure = 0
+
+    if failed_logins > 0 and successful_logins > 0:
+        successful_after_failure = 1
+
+    duration = random.randint(30, 900)
+
+    return create_sequence_features(
+        failed_logins,
+        successful_logins,
+        successful_after_failure,
+        firewall_activity,
+        firewall_denials,
+        browser_activity,
+        authentication_events,
+        duration
+    )
 
 
-def normal_firewall_denial():
+def calculate_suspicion_score(features):
     """
-    A legitimate connection is blocked by the firewall.
-    Firewall denial alone should not mean malicious activity.
-    """
+    Calculate a behavioural suspicion score.
 
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(30, 300),
-
-            "authentication_failed": 0,
-            "authentication_success": 1,
-
-            "firewall_activity": 1,
-            "firewall_denied": 1,
-
-            "browser_activity": 0,
-
-            "same_user": 0,
-            "same_source_ip": 1,
-            "same_device": 0,
-
-            "different_sources": 1
-        },
-        "label": 0
-    }
-
-
-def normal_browser_activity():
-    """
-    Normal browser activity following successful authentication.
+    The score is intentionally based on combinations
+    of behaviours rather than a single feature.
     """
 
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(60, 300),
+    score = 0
 
-            "authentication_failed": 0,
-            "authentication_success": 1,
+    failed = features["failed_login_count"]
+    successful_after_failure = features[
+        "successful_login_after_failure"
+    ]
+    firewall_denials = features[
+        "firewall_denial_count"
+    ]
+    browser = features["browser_activity_count"]
+    firewall = features["firewall_activity_count"]
+    sources = features["number_of_evidence_sources"]
 
-            "firewall_activity": 0,
-            "firewall_denied": 0,
+    # Repeated authentication failures
+    if failed >= 2:
+        score += 2
 
-            "browser_activity": 1,
+    # Successful authentication after failures
+    if successful_after_failure:
+        score += 2
 
-            "same_user": 1,
-            "same_source_ip": 1,
-            "same_device": 1,
+    # Multiple denied network connections
+    if firewall_denials >= 2:
+        score += 2
 
-            "different_sources": 1
-        },
-        "label": 0
-    }
+    # Authentication followed by network activity
+    if features["authentication_event_count"] > 0 and firewall > 0:
+        score += 1
 
+    # Authentication followed by browser activity
+    if features["authentication_event_count"] > 0 and browser > 0:
+        score += 1
 
-# ------------------------------------------------
-# SUSPICIOUS BEHAVIOUR
-# ------------------------------------------------
+    # Activity across multiple evidence sources
+    if sources >= 3:
+        score += 1
 
-def suspicious_failed_login_firewall():
-    """
-    Failed authentication followed by denied network activity.
-    """
-
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(20, 300),
-
-            "authentication_failed": 1,
-            "authentication_success": 0,
-
-            "firewall_activity": 1,
-            "firewall_denied": 1,
-
-            "browser_activity": 0,
-
-            "same_user": 0,
-            "same_source_ip": 1,
-            "same_device": 0,
-
-            "different_sources": 1
-        },
-        "label": 1
-    }
+    return score
 
 
-def suspicious_multiple_authentication_activity():
-    """
-    Authentication failure combined with additional activity.
-    """
+def generate_record():
+    """Generate one sequence and assign its behavioural label."""
 
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(20, 120),
+    features = generate_base_behaviour()
 
-            "authentication_failed": 1,
-            "authentication_success": 0,
+    suspicion_score = calculate_suspicion_score(features)
 
-            "firewall_activity": 1,
-            "firewall_denied": random.choice([0, 1]),
+    # Add some ambiguity around the classification boundary.
+    if suspicion_score >= 5:
+        label = 1
+    elif suspicion_score <= 2:
+        label = 0
+    else:
+        # Borderline sequences can belong to either class.
+        label = random.choice([0, 1])
 
-            "browser_activity": random.choice([0, 1]),
+    features["label"] = label
 
-            "same_user": random.choice([0, 1]),
-            "same_source_ip": 1,
-            "same_device": random.choice([0, 1]),
+    return features
 
-            "different_sources": 1
-        },
-        "label": 1
-    }
-
-
-def suspicious_failed_login_browser():
-    """
-    Failed authentication followed by browser activity.
-    """
-
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(20, 180),
-
-            "authentication_failed": 1,
-            "authentication_success": 0,
-
-            "firewall_activity": 0,
-            "firewall_denied": 0,
-
-            "browser_activity": 1,
-
-            "same_user": 1,
-            "same_source_ip": 1,
-            "same_device": 1,
-
-            "different_sources": 1
-        },
-        "label": 1
-    }
-
-
-def suspicious_successful_login_network():
-    """
-    Successful authentication followed by suspicious network activity.
-    This prevents the model from assuming successful authentication is
-    always normal.
-    """
-
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(10, 120),
-
-            "authentication_failed": 0,
-            "authentication_success": 1,
-
-            "firewall_activity": 1,
-            "firewall_denied": 1,
-
-            "browser_activity": 0,
-
-            "same_user": 0,
-            "same_source_ip": 1,
-            "same_device": 0,
-
-            "different_sources": 1
-        },
-        "label": 1
-    }
-
-
-def suspicious_successful_login_browser():
-    """
-    Successful authentication followed by potentially suspicious
-    browser activity.
-    """
-
-    return {
-        "features": {
-            "time_difference_seconds": random.randint(10, 120),
-
-            "authentication_failed": 0,
-            "authentication_success": 1,
-
-            "firewall_activity": 0,
-            "firewall_denied": 0,
-
-            "browser_activity": 1,
-
-            "same_user": 0,
-            "same_source_ip": 1,
-            "same_device": 0,
-
-            "different_sources": 1
-        },
-        "label": 1
-    }
-
-
-# ------------------------------------------------
-# DATASET GENERATION
-# ------------------------------------------------
 
 def generate_training_data():
+    """Generate the complete synthetic training dataset."""
 
-    records = []
-
-    normal_patterns = [
-        normal_successful_login_browser,
-        normal_failed_login_then_success,
-        normal_allowed_network_activity,
-        normal_firewall_denial,
-        normal_browser_activity
+    training_data = [
+        generate_record()
+        for _ in range(NUMBER_OF_RECORDS)
     ]
 
-    suspicious_patterns = [
-        suspicious_failed_login_firewall,
-        suspicious_multiple_authentication_activity,
-        suspicious_failed_login_browser,
-        suspicious_successful_login_network,
-        suspicious_successful_login_browser
-    ]
+    random.shuffle(training_data)
 
-    for _ in range(NUMBER_OF_RECORDS):
-
-        # Approximately 70% normal
-        # Approximately 30% suspicious
-
-        if random.random() < 0.7:
-
-            pattern = random.choice(
-                normal_patterns
-            )
-
-        else:
-
-            pattern = random.choice(
-                suspicious_patterns
-            )
-
-        records.append(
-            pattern()
-        )
-
-    return records
+    return training_data
 
 
-# ------------------------------------------------
-# SAVE DATASET
-# ------------------------------------------------
+def main():
+    training_data = generate_training_data()
 
-def save_training_data(records):
-
-    with open(OUTPUT_FILE, "w") as file:
-
+    with open(
+        "sequence_training_features.json",
+        "w"
+    ) as file:
         json.dump(
-            records,
+            training_data,
             file,
             indent=4
         )
 
+    normal_count = sum(
+        record["label"] == 0
+        for record in training_data
+    )
 
-# ------------------------------------------------
-# MAIN PROGRAM
-# ------------------------------------------------
+    suspicious_count = sum(
+        record["label"] == 1
+        for record in training_data
+    )
 
-training_data = generate_training_data()
+    print(
+        f"Training records generated: "
+        f"{len(training_data)}"
+    )
 
-save_training_data(
-    training_data
-)
+    print(
+        f"Normal records: {normal_count}"
+    )
 
-normal_count = sum(
-    record["label"] == 0
-    for record in training_data
-)
+    print(
+        f"Suspicious records: {suspicious_count}"
+    )
 
-suspicious_count = sum(
-    record["label"] == 1
-    for record in training_data
-)
+    print(
+        "Training data saved to "
+        "sequence_training_features.json"
+    )
 
-print(
-    f"\nTraining records generated: "
-    f"{len(training_data)}"
-)
 
-print(
-    f"Normal records: {normal_count}"
-)
-
-print(
-    f"Suspicious records: {suspicious_count}"
-)
-
-print(
-    f"Training data saved to {OUTPUT_FILE}"
-)
+if __name__ == "__main__":
+    main()
