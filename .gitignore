@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python packaging
+*.egg-info/
+
+# Generated ML models
+*.pkl
+
+# Generated analysis/output files
+evidence.json
+normalized_evidence.json
+extracted_entities.json
+correlations.json
+features.json
+training_features.json
+ai_analysis.json
